@@ -1,85 +1,78 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { generateResearch } from "./openai";
+import { generateResearch } from "./api/openai";
+import { researchResultSchema } from "@shared/schema";
 import { z } from "zod";
-import { researchSessionDepthSchema, researchSessionIdeaTypeSchema } from "@shared/schema";
 
 export async function registerRoutes(app: Express): Promise<Server> {
-  // Generate research API endpoint
+  // Research Generation Route
   app.post("/api/research/generate", async (req, res) => {
     try {
-      // Validate request body
-      const schema = z.object({
-        topic: z.string().min(3, "Topic must be at least 3 characters long").max(300),
-        researchDepth: researchSessionDepthSchema,
-        ideaType: researchSessionIdeaTypeSchema,
+      const requestSchema = z.object({
+        topic: z.string().min(3),
+        detailed: z.boolean().optional().default(false),
       });
-
-      const parsedBody = schema.safeParse(req.body);
-      if (!parsedBody.success) {
-        return res.status(400).json({ 
-          message: "Invalid request body", 
-          errors: parsedBody.error.format() 
-        });
-      }
-
-      const { topic, researchDepth, ideaType } = parsedBody.data;
-
-      // Create research session
-      const session = await storage.createResearchSession({
-        topic,
-        researchDepth,
-        ideaType,
-        userId: null, // No authentication in this version
+      
+      const validatedData = requestSchema.parse(req.body);
+      
+      const researchData = await generateResearch(
+        validatedData.topic, 
+        validatedData.detailed
+      );
+      
+      // Validate the research data against our schema
+      const validatedResearch = researchResultSchema.parse(researchData);
+      
+      return res.status(200).json(validatedResearch);
+    } catch (error) {
+      console.error("Error generating research:", error);
+      return res.status(500).json({ 
+        message: error instanceof Error ? error.message : "Failed to generate research" 
       });
-
-      // Generate research
-      try {
-        const results = await generateResearch(topic, researchDepth, ideaType);
-        
-        // Save results to session
-        const updatedSession = await storage.saveResearchResults(session.id, results);
-        
-        // Return results
-        return res.status(200).json({
-          sessionId: updatedSession.id,
-          results,
-        });
-      } catch (error: any) {
-        console.error("Error generating research:", error);
-        return res.status(500).json({ 
-          message: "Failed to generate research", 
-          error: error.message,
-          sessionId: session.id
-        });
-      }
-    } catch (error: any) {
-      console.error("Server error:", error);
-      return res.status(500).json({ message: "Server error", error: error.message });
     }
   });
 
-  // Get research session by ID
-  app.get("/api/research/session/:id", async (req, res) => {
+  // Save Research Result
+  app.post("/api/research/save", async (req, res) => {
     try {
-      const id = parseInt(req.params.id);
-      if (isNaN(id)) {
-        return res.status(400).json({ message: "Invalid session ID" });
-      }
+      const validatedData = researchResultSchema.parse(req.body);
+      
+      // In a real application with authentication, we would associate with user
+      // const userId = req.user?.id; 
+      
+      const savedResearch = await storage.saveResearchResult({
+        ...validatedData,
+        userId: null, // Would come from authenticated user
+      });
+      
+      return res.status(201).json(savedResearch);
+    } catch (error) {
+      console.error("Error saving research:", error);
+      return res.status(500).json({ 
+        message: error instanceof Error ? error.message : "Failed to save research" 
+      });
+    }
+  });
 
-      const session = await storage.getResearchSession(id);
-      if (!session) {
-        return res.status(404).json({ message: "Research session not found" });
-      }
-
-      return res.status(200).json(session);
-    } catch (error: any) {
-      console.error("Server error:", error);
-      return res.status(500).json({ message: "Server error", error: error.message });
+  // Get Saved Research Results
+  app.get("/api/research", async (req, res) => {
+    try {
+      // In a real application with authentication, we would filter by user
+      // const userId = req.user?.id;
+      
+      const researchResults = await storage.getResearchResults();
+      
+      return res.status(200).json(researchResults);
+    } catch (error) {
+      console.error("Error fetching research results:", error);
+      return res.status(500).json({ 
+        message: error instanceof Error ? error.message : "Failed to fetch research results" 
+      });
     }
   });
 
   const httpServer = createServer(app);
+
   return httpServer;
 }

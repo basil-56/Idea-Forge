@@ -1,29 +1,25 @@
-import { users, type User, type InsertUser, researchSessions, type ResearchSession, type InsertResearchSession } from "@shared/schema";
-import { ResearchResults } from "@shared/types";
+import { users, type User, type InsertUser, type ResearchResult, type ResearchResultData } from "@shared/schema";
 
 export interface IStorage {
   getUser(id: number): Promise<User | undefined>;
   getUserByUsername(username: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
-  
-  // Research Sessions
-  createResearchSession(session: InsertResearchSession): Promise<ResearchSession>;
-  getResearchSession(id: number): Promise<ResearchSession | undefined>;
-  getUserResearchSessions(userId: number): Promise<ResearchSession[]>;
-  saveResearchResults(id: number, results: ResearchResults): Promise<ResearchSession>;
+  saveResearchResult(result: ResearchResultData & { userId?: number | null }): Promise<ResearchResult>;
+  getResearchResults(userId?: number): Promise<ResearchResult[]>;
+  getResearchResultById(id: number): Promise<ResearchResult | undefined>;
 }
 
 export class MemStorage implements IStorage {
   private users: Map<number, User>;
-  private researchSessions: Map<number, ResearchSession>;
-  private userIdCounter: number;
-  private sessionIdCounter: number;
+  private researchResults: Map<number, ResearchResult>;
+  private currentUserId: number;
+  private currentResearchId: number;
 
   constructor() {
     this.users = new Map();
-    this.researchSessions = new Map();
-    this.userIdCounter = 1;
-    this.sessionIdCounter = 1;
+    this.researchResults = new Map();
+    this.currentUserId = 1;
+    this.currentResearchId = 1;
   }
 
   async getUser(id: number): Promise<User | undefined> {
@@ -37,48 +33,44 @@ export class MemStorage implements IStorage {
   }
 
   async createUser(insertUser: InsertUser): Promise<User> {
-    const id = this.userIdCounter++;
+    const id = this.currentUserId++;
     const user: User = { ...insertUser, id };
     this.users.set(id, user);
     return user;
   }
 
-  async createResearchSession(session: InsertResearchSession): Promise<ResearchSession> {
-    const id = this.sessionIdCounter++;
-    const createdAt = new Date();
-    const newSession: ResearchSession = { 
-      ...session, 
-      id, 
-      results: null,
-      createdAt
+  async saveResearchResult(result: ResearchResultData & { userId?: number | null }): Promise<ResearchResult> {
+    const id = this.currentResearchId++;
+    const timestamp = new Date();
+    
+    const researchResult: ResearchResult = {
+      id,
+      userId: result.userId || null,
+      topic: result.topic,
+      summary: result.summary,
+      marketAnalysis: result.marketAnalysis,
+      keyFindings: result.keyFindings,
+      productIdeas: result.productIdeas,
+      futureDirections: result.futureDirections,
+      createdAt: timestamp
     };
-    this.researchSessions.set(id, newSession);
-    return newSession;
+    
+    this.researchResults.set(id, researchResult);
+    return researchResult;
   }
 
-  async getResearchSession(id: number): Promise<ResearchSession | undefined> {
-    return this.researchSessions.get(id);
-  }
-
-  async getUserResearchSessions(userId: number): Promise<ResearchSession[]> {
-    return Array.from(this.researchSessions.values())
-      .filter(session => session.userId === userId)
-      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
-  }
-
-  async saveResearchResults(id: number, results: ResearchResults): Promise<ResearchSession> {
-    const session = await this.getResearchSession(id);
-    if (!session) {
-      throw new Error(`Research session with id ${id} not found`);
+  async getResearchResults(userId?: number): Promise<ResearchResult[]> {
+    const results = Array.from(this.researchResults.values());
+    
+    if (userId) {
+      return results.filter(result => result.userId === userId);
     }
     
-    const updatedSession: ResearchSession = {
-      ...session,
-      results
-    };
-    
-    this.researchSessions.set(id, updatedSession);
-    return updatedSession;
+    return results;
+  }
+
+  async getResearchResultById(id: number): Promise<ResearchResult | undefined> {
+    return this.researchResults.get(id);
   }
 }
 
